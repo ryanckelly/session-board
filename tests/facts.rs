@@ -9,7 +9,6 @@ use board::facts::{Projects, Session, State, group};
 use board::mask::mask_secrets;
 use board::store;
 use serde_json::{Value, json};
-use std::os::unix::fs::PermissionsExt;
 
 mod common;
 use common::*;
@@ -132,7 +131,7 @@ fn cache_is_reused_and_private() {
     transcript("s1", "/opt").write(&c);
     collect(&tmp, &[]);
     let cache_path = tmp.join("cache.json");
-    assert_eq!(std::fs::metadata(&cache_path).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_mode(&cache_path, 0o600);
     let mut calls = 0;
     let got = cache::load_with(&c, &cache_path, 30, NOW, &mut |_| {
         calls += 1;
@@ -178,7 +177,7 @@ fn project_of() {
     let opt = tmp.join("opt");
     std::fs::create_dir_all(opt.join(".git")).unwrap();
     std::fs::create_dir_all(opt.join("plex/conf")).unwrap();
-    let s = |p: std::path::PathBuf| p.to_string_lossy().into_owned();
+    let s = |p: std::path::PathBuf| path_str(&p);
     let ws = vec![s(opt.clone()), s(home.clone())];
     // The temp dir is itself under /tmp, so scratch is somewhere else here.
     let rules = Projects { workspaces: ws.clone(), scratch: "/nonexistent-scratch".into() };
@@ -263,8 +262,8 @@ fn forget_drops_entries_older_than_the_transcripts() {
     let got = store::load_deleted(&path);
     assert_eq!(got.len(), 2);
     assert_eq!((got["new"], got["R"]), (NOW, NOW));
-    assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
-    assert_eq!(std::fs::metadata(tmp.join("state")).unwrap().permissions().mode() & 0o777, 0o700);
+    assert_mode(&path, 0o600);
+    assert_mode(&tmp.join("state"), 0o700);
 }
 
 #[test]
@@ -551,6 +550,7 @@ fn model_context_and_output_tokens() {
 }
 
 #[test]
+#[cfg(unix)]
 fn liveness_without_proc_falls_back_to_the_pid() {
     let alive = |pid: Value, start: Value| registry::alive_with(Some(&pid), Some(&start), false);
     assert!(alive(json!(std::process::id()), json!("anything")));
@@ -559,7 +559,7 @@ fn liveness_without_proc_falls_back_to_the_pid() {
 }
 
 #[test]
-fn liveness_with_proc_checks_the_start_time() {
+fn liveness_checks_the_start_time() {
     let start = registry::own_start_time().unwrap();
     let pid = json!(std::process::id());
     assert!(registry::alive(Some(&pid), Some(&json!(start))));
@@ -693,7 +693,7 @@ fn a_session_that_moved_into_a_worktree_is_grouped_by_where_it_works() {
     std::fs::create_dir_all(repo.join(".git/worktrees/fix")).unwrap();
     std::fs::create_dir_all(&wt).unwrap();
     std::fs::write(wt.join(".git"), format!("gitdir: {}\n", repo.join(".git/worktrees/fix").display())).unwrap();
-    let (home_s, wt_s) = (home.to_string_lossy().into_owned(), wt.to_string_lossy().into_owned());
+    let (home_s, wt_s) = (path_str(&home), path_str(&wt));
     let moved = json!({"type": "user", "cwd": wt_s, "timestamp": iso(NOW - 500.0),
                        "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]},
                        "toolUseResult": {"filePath": format!("{wt_s}/src/a.rs"), "structuredPatch": [{"lines": ["+x"]}]}});
@@ -701,7 +701,7 @@ fn a_session_that_moved_into_a_worktree_is_grouped_by_where_it_works() {
     let s = &collect(&tmp, &[])["s1"];
     assert_eq!(s.cwd, home_s, "actions run where the conversation is kept");
     assert_eq!(s.workdir.as_deref(), Some(wt_s.as_str()));
-    assert_eq!(s.project, repo.to_string_lossy());
+    assert_eq!(s.project, path_str(&repo));
     assert_eq!(s.files.len(), 1);
     assert_eq!((s.files[0].added, s.files[0].edits), (1, 1));
 }
@@ -716,7 +716,7 @@ fn a_cd_elsewhere_does_not_move_a_session_to_another_project() {
     std::fs::create_dir_all(&scratch).unwrap();
     let other = home.join("plain/dir");
     std::fs::create_dir_all(&other).unwrap();
-    let s = |p: &std::path::Path| p.to_string_lossy().into_owned();
+    let s = |p: &std::path::Path| path_str(p);
     let at = |cwd: String| json!({"type": "user", "cwd": cwd, "timestamp": iso(NOW - 500.0),
                                   "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t", "content": "ok"}]}});
     // Launched in a repo, then a command ran in a plain folder: stays with the repo.

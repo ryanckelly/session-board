@@ -11,6 +11,23 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const NOW: f64 = 1_793_500_000.0; // 2026-10-31
 
+/// `path` as the board spells it ([`board::config::canon`]): itself on Unix, `C:/…` on Windows.
+pub fn path_str(path: &Path) -> String {
+    board::config::canon(&path.to_string_lossy())
+}
+
+/// `path`'s permission bits are `want` (`0o600`, `0o700`). Unix only: on Windows the board's
+/// files inherit the profile folder's ACL instead, so there is nothing to check.
+pub fn assert_mode(path: &Path, want: u32) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(path).unwrap().permissions().mode() & 0o777, want, "{}", path.display());
+    }
+    #[cfg(not(unix))]
+    let _ = (path, want);
+}
+
 /// A folder removed when dropped.
 pub struct TempDir(PathBuf);
 
@@ -23,7 +40,8 @@ impl TempDir {
             SEQ.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&path).unwrap();
-        TempDir(path.canonicalize().unwrap())
+        // canonicalize() spells Windows paths `\\?\C:\…`; the board spells them `C:/…`.
+        TempDir(PathBuf::from(path_str(&path.canonicalize().unwrap())))
     }
 
     pub fn path(&self) -> &Path {
@@ -31,11 +49,11 @@ impl TempDir {
     }
 
     pub fn join(&self, p: &str) -> PathBuf {
-        self.0.join(p)
+        PathBuf::from(path_str(&self.0.join(p)))
     }
 
     pub fn str(&self) -> String {
-        self.0.to_string_lossy().into_owned()
+        path_str(&self.0)
     }
 }
 
@@ -121,7 +139,10 @@ impl<'a> Transcript<'a> {
 
     /// Write it under `claude/projects/<folder>/<sid>.jsonl`, with its mtime at `ts`.
     pub fn write(self, claude: &Path) -> PathBuf {
-        let folder = claude.join("projects").join(self.cwd.replace('/', "-"));
+        // As Claude Code names it: every character but a letter or digit becomes `-`
+        // (`/home/u/app` → `-home-u-app`, `C:\Users\u` → `C--Users-u`).
+        let name: String = self.cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
+        let folder = claude.join("projects").join(name);
         std::fs::create_dir_all(&folder).unwrap();
         let (sid, ts) = (self.sid, self.ts);
         let mut lines = Vec::new();

@@ -109,10 +109,10 @@ pub fn read(cwd: &str) -> Option<GitInfo> {
     info.worktrees = git(&["worktree", "list", "--porcelain"])
         .map(|w| w.lines().filter(|l| l.starts_with("worktree ")).count() as u32)
         .unwrap_or(1);
-    info.fetched = common.and_then(|c| std::fs::metadata(c.join("FETCH_HEAD")).ok()).map(|m| {
-        use std::os::unix::fs::MetadataExt;
-        m.mtime()
-    });
+    info.fetched = common
+        .and_then(|c| std::fs::metadata(c.join("FETCH_HEAD")).ok()?.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64);
     Some(info)
 }
 

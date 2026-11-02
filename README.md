@@ -35,7 +35,8 @@ Tab (and Shift+Tab) cycles them.
 - Claude Code with background sessions (`claude --bg`, `claude attach`, `claude agents`). Checked on
   2.1.316. The board reads files Claude Code doesn't document, so a Claude Code update can break it;
   `docs/data-sources.md` lists what it reads.
-- Linux or macOS. On Linux, liveness checks also compare process start times, which macOS can't.
+- Linux, macOS or Windows. On Linux and Windows, liveness checks also compare process start times,
+  which macOS can't. See [Windows](#windows) for what differs there.
 - To build: Rust (stable) via [rustup](https://rustup.rs).
 
 ## Install
@@ -48,6 +49,26 @@ board                                      # or: board --list, board --json, boa
 ```
 
 Make sure `~/.local/bin` is on your `PATH`. To update, `git pull` and run the `cargo install` line again.
+
+### Windows
+
+The same steps work in PowerShell; the build needs the MSVC toolchain (rustup's default, with the
+Visual Studio C++ Build Tools):
+
+```powershell
+git clone https://github.com/ryanckelly/session-board.git $HOME\session-board
+cd $HOME\session-board
+cargo install --path . --root $HOME\.local    # installs ~\.local\bin\board.exe, next to claude.exe
+```
+
+What differs from Linux:
+
+- Home is `$HOME` if set (Git Bash sets it), else `USERPROFILE`. Paths are shown with `/`
+  (`C:/opt/app`), which Windows, git and `claude` all accept.
+- `SESSION_BOARD_WORKSPACES` is separated by `;`, as `PATH` is. `scratch` defaults to `%TEMP%`.
+- The board's files get your profile folder's permissions (its ACL) rather than `0600`/`0700`.
+- Liveness compares a process's creation time from `GetProcessTimes` with `procStart`, which Claude
+  Code writes on Windows in that form.
 
 ## Keys
 
@@ -96,7 +117,7 @@ claude = "claude"       # the claude CLI, if it isn't on PATH as "claude" (may i
 ```
 
 Each setting can also come from an environment variable, which wins over the file:
-`SESSION_BOARD_WORKSPACES` (folders separated by `:`), `SESSION_BOARD_SCRATCH`, `SESSION_BOARD_DAYS`,
+`SESSION_BOARD_WORKSPACES` (folders separated by `:`, or `;` on Windows), `SESSION_BOARD_SCRATCH`, `SESSION_BOARD_DAYS`,
 `SESSION_BOARD_POLL` and `SESSION_BOARD_CLAUDE`. `SESSION_BOARD_CONFIG` points at another config file.
 Claude Code's folder follows `CLAUDE_CONFIG_DIR`, as Claude Code does. The cache and the board's own
 state follow `XDG_CACHE_HOME` and `XDG_STATE_HOME`.
@@ -124,7 +145,7 @@ of your clone:
 "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/session-board/mod"
 ```
 
-It runs `~/.local/bin/board`. If the board is installed elsewhere, also set `"SESSION_BOARD_BIN":
+It runs `~/.local/bin/board` (`board.exe` on Windows). If the board is installed elsewhere, also set `"SESSION_BOARD_BIN":
 "/path/to/board"` in the same block. To try it in a single session: `claude --plugin-dir
 /path/to/session-board/mod`. Check it with `claude plugin validate mod/` and `claude plugin test mod/`.
 

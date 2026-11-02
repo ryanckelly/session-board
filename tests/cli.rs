@@ -67,12 +67,12 @@ fn json_has_exactly_the_twelve_fields_and_no_transcript_text() {
 
 #[test]
 fn the_cache_lands_in_its_own_private_file() {
-    use std::os::unix::fs::PermissionsExt;
     let tmp = fixture();
     board(&tmp, &["--json"]);
     let path = tmp.join("cache/session-board/transcripts-rs.json");
-    assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
-    assert_eq!(std::fs::metadata(path.parent().unwrap()).unwrap().permissions().mode() & 0o777, 0o700);
+    assert!(path.is_file());
+    assert_mode(&path, 0o600);
+    assert_mode(path.parent().unwrap(), 0o700);
 }
 
 #[test]

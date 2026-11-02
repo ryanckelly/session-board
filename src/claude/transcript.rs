@@ -4,7 +4,7 @@
 //! state into a [`TranscriptInfo`], so parsing only the appended tail of a file can be added later
 //! without a rewrite. Today a changed file is parsed whole (see `cache.rs`).
 
-use super::{epoch, string, text, truthy};
+use super::{epoch, path_field, string, text, truthy};
 use crate::mask::{flat, mask_secrets, truncate_chars};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -230,7 +230,7 @@ impl Parser {
             self.tool_result(r, epoch(e.get("timestamp")));
         }
         let t = &mut self.info;
-        if let Some(c) = string(e, "cwd") {
+        if let Some(c) = path_field(e, "cwd") {
             t.cwd.get_or_insert_with(|| c.clone());
             t.cwd_last = Some(c);
         }
@@ -331,7 +331,8 @@ impl Parser {
     }
 
     fn touch(&mut self, path: &str, ts: i64) -> &mut FileTouch {
-        let f = self.files.entry(path.to_string()).or_insert_with(|| FileTouch { path: path.to_string(), ..FileTouch::default() });
+        let path = crate::config::canon(path);
+        let f = self.files.entry(path.clone()).or_insert_with(|| FileTouch { path, ..FileTouch::default() });
         f.last = f.last.max(ts);
         f
     }

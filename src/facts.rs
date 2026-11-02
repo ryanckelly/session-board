@@ -258,7 +258,7 @@ impl ProjectResolver<'_> {
         Path::new(path)
             .ancestors()
             .find(|d| !d.as_os_str().is_empty() && d.join(".git").exists())
-            .map(|d| d.to_string_lossy().into_owned())
+            .map(|d| crate::config::canon(&d.to_string_lossy()))
             .unwrap_or_else(|| "/nonexistent".into())
     }
 
@@ -284,7 +284,7 @@ impl ProjectResolver<'_> {
             }
             if let Some(rest) = cwd.strip_prefix(&format!("{w}/")) {
                 let child = rest.split('/').next().unwrap_or("");
-                return Path::new(w).join(child).to_string_lossy().into_owned();
+                return crate::config::canon(&Path::new(w).join(child).to_string_lossy());
             }
         }
         root.unwrap_or_else(|| cwd.to_string())
@@ -302,11 +302,11 @@ impl ProjectResolver<'_> {
         while let Some(d) = dir.filter(|d| !d.as_os_str().is_empty() && *d != Path::new("/")) {
             let dot = d.join(".git");
             if dot.is_file() {
-                found = Some(main_repo(&dot).unwrap_or_else(|| d.to_string_lossy().into_owned()));
+                found = Some(main_repo(&dot).unwrap_or_else(|| crate::config::canon(&d.to_string_lossy())));
                 break;
             }
             if dot.exists() {
-                found = Some(d.to_string_lossy().into_owned());
+                found = Some(crate::config::canon(&d.to_string_lossy()));
                 break;
             }
             dir = d.parent();
@@ -336,7 +336,7 @@ fn main_repo(dot_git: &Path) -> Option<String> {
     // <repo>/.git/worktrees/<name>
     let worktrees = gitdir.parent().filter(|p| p.file_name().is_some_and(|n| n == "worktrees"))?;
     let repo_git = worktrees.parent().filter(|p| p.file_name().is_some_and(|n| n == ".git"))?;
-    Some(repo_git.parent()?.to_string_lossy().into_owned())
+    Some(crate::config::canon(&repo_git.parent()?.to_string_lossy()))
 }
 
 /// Sessions by project: the project with the most urgent session first, then the most recent.

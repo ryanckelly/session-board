@@ -62,6 +62,11 @@ pub(crate) fn string(v: &Value, key: &str) -> Option<String> {
     text(v, key).map(String::from)
 }
 
+/// A path field, in the board's spelling ([`crate::config::canon`]).
+pub(crate) fn path_field(v: &Value, key: &str) -> Option<String> {
+    text(v, key).map(crate::config::canon)
+}
+
 /// Entries of `dir` matching `*<suffix>`, skipping hidden names as a shell glob does, sorted.
 pub(crate) fn glob(dir: &Path, suffix: &str) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };

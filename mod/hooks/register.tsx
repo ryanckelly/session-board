@@ -55,11 +55,14 @@ type Row = {
  * gets its facts: `board --json` today; sb-tui-live will add a hooks-fed state folder to read instead.
  */
 async function readOthers($: EngineInterface): Promise<{ others: Others; live: LiveBoard } | null> {
-  const home = await $.env.get('HOME')
+  // Windows sets OS=Windows_NT and USERPROFILE; HOME only under Git Bash or MSYS.
+  const windows = (await $.env.get('OS')) === 'Windows_NT'
+  const home = (await $.env.get('HOME')) ?? (windows ? await $.env.get('USERPROFILE') : undefined)
   const jobDir = await $.env.get('CLAUDE_JOB_DIR')
   const self = await $.session.id()
-  const myJob = jobDir?.split('/').pop()
-  const board = (await $.env.get('SESSION_BOARD_BIN')) || `${home ?? ''}/.local/bin/board`
+  const myJob = jobDir?.split(/[\\/]/).pop()
+  const board =
+    (await $.env.get('SESSION_BOARD_BIN')) || `${home ?? ''}/.local/bin/board${windows ? '.exe' : ''}`
   const run = await $.process.run([board, '--json'], { timeoutMs: 20_000 })
   if (run.exitCode !== 0) {
     return null

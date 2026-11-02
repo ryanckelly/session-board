@@ -1,6 +1,6 @@
 //! A background session's `jobs/<id>/state.json`: its tempo and Claude Code's own summary.
 
-use super::{epoch, read_json, string, text};
+use super::{epoch, path_field, read_json, string, text};
 use crate::facts::State;
 use serde_json::Value;
 use std::path::Path;
@@ -37,7 +37,7 @@ impl JobState {
             detail: string(v, "detail"),
             needs: string(v, "needs"),
             session_id: string(v, "sessionId"),
-            cwd: string(v, "cwd"),
+            cwd: path_field(v, "cwd"),
             updated_at: epoch(v.get("updatedAt")),
             resume_session_id: string(v, "resumeSessionId"),
             name: string(v, "name"),

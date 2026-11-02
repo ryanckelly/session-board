@@ -6,8 +6,18 @@ use crate::claude::glob;
 use crate::store::write_private;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::os::unix::fs::MetadataExt;
 use std::path::Path;
+use std::time::UNIX_EPOCH;
+
+/// A file's modification time in nanoseconds since the epoch (0 if the platform can't say).
+/// The same number `st_mtime * 1e9 + st_mtime_nsec` gives on Unix, so caches carry over.
+fn mtime_ns(meta: &std::fs::Metadata) -> i128 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos() as i128)
+        .unwrap_or(0)
+}
 
 /// Bump when [`TranscriptInfo`] or its parsing changes; a cache of another version is dropped.
 const VERSION: u32 = 5;
@@ -50,11 +60,11 @@ pub fn load_with(
     for folder in glob(&claude_dir.join("projects"), "") {
         for path in glob(&folder, ".jsonl") {
             let Ok(meta) = std::fs::metadata(&path) else { continue };
-            let mtime = meta.mtime() as f64 + meta.mtime_nsec() as f64 / 1e9;
-            if !meta.is_file() || mtime < horizon {
+            let mtime_ns = mtime_ns(&meta);
+            if !meta.is_file() || (mtime_ns as f64) / 1e9 < horizon {
                 continue;
             }
-            let sig = (i128::from(meta.mtime()) * 1_000_000_000 + i128::from(meta.mtime_nsec()), meta.size());
+            let sig = (mtime_ns, meta.len());
             let key = path.to_string_lossy().into_owned();
             match old.get(&key) {
                 Some(hit) if hit.sig == sig => {

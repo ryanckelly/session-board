@@ -1,7 +1,7 @@
 //! The live sessions: `claude agents --json --all`, or, when the CLI fails or hangs, the same list
 //! rebuilt from the jobs folder and the live-process registry.
 
-use super::{glob, read_json, registry, string};
+use super::{glob, path_field, read_json, registry, string};
 use crate::proc;
 use serde_json::Value;
 use std::path::Path;
@@ -29,7 +29,7 @@ impl Agent {
             id: string(v, "id"),
             kind: string(v, "kind"),
             session_id: string(v, "sessionId"),
-            cwd: string(v, "cwd"),
+            cwd: path_field(v, "cwd"),
             name: string(v, "name"),
         })
     }
@@ -81,7 +81,7 @@ pub fn from_files(claude_dir: &Path) -> Vec<Agent> {
             id: dir.file_name().map(|n| n.to_string_lossy().into_owned()),
             kind: Some("background".into()),
             session_id: string(&st, "sessionId"),
-            cwd: string(&st, "cwd"),
+            cwd: path_field(&st, "cwd"),
             name: string(&st, "name"),
         });
     }
@@ -94,7 +94,7 @@ pub fn from_files(claude_dir: &Path) -> Vec<Agent> {
                 id: None,
                 kind: Some("interactive".into()),
                 session_id: string(&r, "sessionId"),
-                cwd: string(&r, "cwd"),
+                cwd: path_field(&r, "cwd"),
                 name: string(&r, "name"),
             });
         }

@@ -5,16 +5,20 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Write `data` as JSON, readable by you only (the cache holds transcript excerpts), atomically:
 /// a temp file in the same folder renamed into place, so concurrent `board --json` runs never
-/// see half a file and need no lock.
+/// see half a file and need no lock. On Unix the folder is 0700 and the file 0600; on Windows
+/// both inherit the ACL of your profile folder, which already keeps other users out.
 pub fn write_private(path: &Path, data: &impl Serialize) -> std::io::Result<()> {
     let dir = path.parent().unwrap_or(Path::new("."));
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(dir)?;
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -26,7 +30,11 @@ pub fn write_private(path: &Path, data: &impl Serialize) -> std::io::Result<()> 
         SEQ.fetch_add(1, Ordering::Relaxed)
     ));
     let result = (|| {
-        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let mut f = options.open(&tmp)?;
         f.write_all(&serde_json::to_vec(data).map_err(std::io::Error::other)?)?;
         f.sync_all()?;
         std::fs::rename(&tmp, path)

@@ -82,12 +82,7 @@ pub fn plan_new(folder: &str, name: &str, prompt: &str, home: &str) -> Result<Ne
         return refuse("Say which folder the session should start in.");
     }
     let folder = if folder == "~" || folder.starts_with("~/") { format!("{home}{}", &folder[1..]) } else { folder.into() };
-    let folder = if folder.starts_with('/') {
-        folder
-    } else {
-        std::env::current_dir().unwrap_or_else(|_| "/".into()).join(folder).to_string_lossy().into_owned()
-    };
-    let folder = crate::config::normalize(&folder);
+    let folder = crate::config::normalize(&crate::config::absolute(&folder));
     if !Path::new(&folder).is_dir() {
         return refuse(format!("There's no folder {folder}."));
     }

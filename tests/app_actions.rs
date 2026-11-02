@@ -257,7 +257,10 @@ fn the_form_refuses_in_words_and_esc_cancels() {
     press(&mut a, "down");
     type_text(&mut a, "probe");
     let buf = press(&mut a, "enter");
-    assert!(screen(&buf).contains(&format!("There's no folder {}/no-such-folder.", home.str())), "{}", screen(&buf));
+    // The message may wrap before the path (a Windows temp folder is long), so check both halves.
+    let shown = screen(&buf);
+    assert!(shown.contains("There's no folder"), "{shown}");
+    assert!(shown.contains(&format!("{}/no-such-folder.", home.str())), "{shown}");
     press(&mut a, "esc");
     assert!(a.overlay.is_none());
     assert!(a.take_effects().is_empty());

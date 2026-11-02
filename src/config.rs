@@ -155,7 +155,11 @@ impl Picker<'_> {
 /// Load the settings from `env` (the process environment, or a test's own map).
 pub fn load(env: &HashMap<String, String>) -> Result<Config, ConfigError> {
     let get = |k: &str| env.get(k).filter(|v| !v.is_empty()).cloned();
-    let home = get("HOME").unwrap_or_else(fallback_home);
+    // Windows: $HOME is set by Git Bash and MSYS, not by Windows itself, which has USERPROFILE.
+    let home = get("HOME")
+        .or_else(|| if cfg!(windows) { get("USERPROFILE") } else { None })
+        .unwrap_or_else(fallback_home);
+    let home = if cfg!(windows) { normalize(&home) } else { home };
     let xdg_config = get("XDG_CONFIG_HOME").unwrap_or_else(|| join(&home, ".config"));
     let config_path = expand(
         &get("SESSION_BOARD_CONFIG").unwrap_or_else(|| join(&xdg_config, "session-board/config.toml")),
@@ -173,9 +177,12 @@ pub fn load(env: &HashMap<String, String>) -> Result<Config, ConfigError> {
 
     let raw_workspaces: Vec<String> = match p.pick("workspaces") {
         None => vec!["~".into()],
-        Some(Raw::Text(s) | Raw::Toml(toml::Value::String(s))) => {
-            s.split(':').filter(|w| !w.trim().is_empty()).map(String::from).collect()
-        }
+        // Separated like PATH: `:` on Unix, `;` on Windows (where `:` follows the drive letter).
+        Some(Raw::Text(s) | Raw::Toml(toml::Value::String(s))) => s
+            .split(if cfg!(windows) { ';' } else { ':' })
+            .filter(|w| !w.trim().is_empty())
+            .map(String::from)
+            .collect(),
         Some(Raw::Toml(toml::Value::Array(items))) => items
             .into_iter()
             .map(|v| match v {
@@ -270,31 +277,61 @@ fn expand_vars(s: &str, env: &HashMap<String, String>) -> String {
     .into_owned()
 }
 
-fn absolute(path: &str) -> String {
-    if path.starts_with('/') {
+/// `path` made absolute against the current folder, unless it already is (or starts at a root:
+/// `/x` counts as absolute on Windows too).
+pub fn absolute(path: &str) -> String {
+    if path.starts_with('/') || Path::new(path).is_absolute() {
         return path.to_string();
     }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
-    cwd.join(path).to_string_lossy().into_owned()
+    canon(&cwd.join(path).to_string_lossy())
 }
 
 /// Lexical normalisation like `os.path.normpath`: no `.`, no `..`, no doubled or trailing `/`.
+/// On Windows a drive is kept, with `/` separators: `C:\Users\u\..\v` → `C:/Users/v`.
 pub fn normalize(path: &str) -> String {
+    let path = canon(path);
+    let mut prefix = String::new();
     let mut parts: Vec<&str> = Vec::new();
-    for c in Path::new(path).components() {
+    for c in Path::new(&path).components() {
         match c {
             Component::Normal(p) => parts.push(p.to_str().unwrap_or_default()),
             Component::ParentDir => {
                 parts.pop();
             }
-            Component::RootDir | Component::CurDir | Component::Prefix(_) => {}
+            Component::Prefix(p) => prefix = canon(&p.as_os_str().to_string_lossy()),
+            Component::RootDir | Component::CurDir => {}
         }
     }
-    format!("/{}", parts.join("/"))
+    format!("{prefix}/{}", parts.join("/"))
+}
+
+/// The one spelling the board uses for a path, so paths from Claude Code's files, git, the
+/// environment and the config file compare equal. On Unix the path as given. On Windows `/`
+/// separators, an upper-case drive letter, and no `\\?\` prefix: `c:\Users\u` → `C:/Users/u`
+/// (Windows, git and `claude` all take `/`).
+#[cfg(not(windows))]
+pub fn canon(path: &str) -> String {
+    path.to_string()
+}
+
+/// The one spelling the board uses for a path, so paths from Claude Code's files, git, the
+/// environment and the config file compare equal. On Unix the path as given. On Windows `/`
+/// separators, an upper-case drive letter, and no `\\?\` prefix: `c:\Users\u` → `C:/Users/u`
+/// (Windows, git and `claude` all take `/`).
+#[cfg(windows)]
+pub fn canon(path: &str) -> String {
+    let path = path.strip_prefix(r"\\?\").unwrap_or(path);
+    let mut out = path.replace('\\', "/");
+    let b = out.as_bytes();
+    if b.len() >= 2 && b[1] == b':' && b[0].is_ascii_lowercase() {
+        out[..1].make_ascii_uppercase();
+    }
+    out
 }
 
 fn join(dir: &str, rest: &str) -> String {
-    Path::new(dir).join(rest).to_string_lossy().into_owned()
+    canon(&Path::new(dir).join(rest).to_string_lossy())
 }
 
 /// Where Python's `tempfile.gettempdir()` would point: `$TMPDIR` (macOS sets it), then `/tmp`.
@@ -302,7 +339,7 @@ fn default_temp_dir(env: &HashMap<String, String>) -> String {
     ["TMPDIR", "TEMP", "TMP"]
         .iter()
         .find_map(|k| env.get(*k).filter(|v| !v.is_empty()).cloned())
-        .unwrap_or_else(|| "/tmp".into())
+        .unwrap_or_else(|| if cfg!(windows) { canon(&std::env::temp_dir().to_string_lossy()) } else { "/tmp".into() })
 }
 
 fn fallback_home() -> String {

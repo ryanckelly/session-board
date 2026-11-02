@@ -113,6 +113,7 @@ dependencies = [
  "toml",
  "unicode-width",
  "wait-timeout",
+ "windows-sys",
 ]
 
 [[package]]

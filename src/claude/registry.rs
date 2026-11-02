@@ -1,16 +1,65 @@
 //! Process liveness. A registry or roster file outlives a crash, so a pid alone proves little: on
-//! Linux its start time must match too (a reused pid would not). Without `/proc` (macOS) the pid
-//! existing has to do.
+//! Linux and Windows its start time must match too (a reused pid would not). Without `/proc`
+//! (macOS) the pid existing has to do.
+//!
+//! `procStart` is whatever Claude Code reads for the platform: field 22 of `/proc/<pid>/stat` on
+//! Linux, the creation time from `GetProcessTimes` (a FILETIME, 100 ns ticks since 1601) on
+//! Windows.
 
 use serde_json::Value;
+#[cfg(unix)]
 use std::path::Path;
 
 /// Is the process `pid`, started at `proc_start`, still running?
+#[cfg(unix)]
 pub fn alive(pid: Option<&Value>, proc_start: Option<&Value>) -> bool {
     alive_with(pid, proc_start, Path::new("/proc/self").is_dir())
 }
 
+/// Is the process `pid`, started at `proc_start`, still running?
+#[cfg(windows)]
+pub fn alive(pid: Option<&Value>, proc_start: Option<&Value>) -> bool {
+    let Some(pid) = pid.and_then(as_pid) else { return false };
+    win::creation_time(pid as u32).is_some_and(|start| start.to_string() == as_text(proc_start))
+}
+
+/// This process's own start time, for tests that need a live roster entry.
+#[cfg(windows)]
+pub fn own_start_time() -> Option<String> {
+    win::creation_time(std::process::id()).map(|t| t.to_string())
+}
+
+#[cfg(windows)]
+mod win {
+    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, STILL_ACTIVE};
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    /// The creation time of running process `pid`, as Claude Code writes `procStart`; `None` when
+    /// there is no such process, it has exited, or it can't be queried.
+    pub fn creation_time(pid: u32) -> Option<u64> {
+        // SAFETY: plain Win32 calls on a handle we open and close here; the out-pointers are to
+        // locals that live for the whole call.
+        unsafe {
+            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if h.is_null() {
+                return None;
+            }
+            let zero = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+            let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
+            let mut code = 0u32;
+            // A process that has exited can still be opened while anyone holds a handle to it.
+            let running = GetExitCodeProcess(h, &mut code) != 0 && code == STILL_ACTIVE as u32;
+            let ok = GetProcessTimes(h, &mut created, &mut exited, &mut kernel, &mut user) != 0;
+            CloseHandle(h);
+            (running && ok).then(|| (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
+        }
+    }
+}
+
 /// [`alive`], told whether `/proc` is there (tests use this to check the macOS path).
+#[cfg(unix)]
 pub fn alive_with(pid: Option<&Value>, proc_start: Option<&Value>, has_proc: bool) -> bool {
     let Some(pid) = pid.and_then(as_pid) else { return false };
     if !has_proc {
@@ -30,6 +79,7 @@ pub fn start_time(stat: &str) -> Option<&str> {
 }
 
 /// This process's own start time, for tests that need a live roster entry.
+#[cfg(unix)]
 pub fn own_start_time() -> Option<String> {
     let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
     start_time(&stat).map(String::from)
