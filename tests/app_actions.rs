@@ -245,8 +245,10 @@ fn n_opens_the_form_prefilled_and_its_letters_are_text() {
 
 #[test]
 fn the_form_refuses_in_words_and_esc_cancels() {
-    let home = TempDir::new();
-    let mut a = App::offline(sample(), &home.str(), "/tmp", Theme::default());
+    // A short home that exists everywhere: the message must fit the form, and a CI runner's temp
+    // folder doesn't.
+    let home = "/";
+    let mut a = App::offline(sample(), home, "/tmp", Theme::default());
     press(&mut a, "n,enter");
     let buf = press(&mut a, "");
     assert!(screen(&buf).contains("Give the session a name or a first prompt."));
@@ -260,7 +262,7 @@ fn the_form_refuses_in_words_and_esc_cancels() {
     // The message may wrap before the path (a Windows temp folder is long), so check both halves.
     let shown = screen(&buf);
     assert!(shown.contains("There's no folder"), "{shown}");
-    assert!(shown.contains(&format!("{}/no-such-folder.", home.str())), "{shown}");
+    assert!(shown.contains("/no-such-folder."), "{shown}");
     press(&mut a, "esc");
     assert!(a.overlay.is_none());
     assert!(a.take_effects().is_empty());
