@@ -341,7 +341,8 @@ fn an_ended_conversation_started_with_clear_is_titled_by_its_first_prompt() {
 fn write_roster(tmp: &TempDir, workers: &[(&str, bool)]) {
     let dir = claude(tmp).join("daemon");
     std::fs::create_dir_all(&dir).unwrap();
-    let start = registry::own_start_time().unwrap();
+    // macOS has no start time to read (`alive` checks the pid alone there), so it stays empty.
+    let start = registry::own_start_time().unwrap_or_default();
     let entries: serde_json::Map<String, Value> = workers
         .iter()
         .map(|(job, alive)| {
@@ -559,6 +560,7 @@ fn liveness_without_proc_falls_back_to_the_pid() {
 }
 
 #[test]
+#[cfg(any(target_os = "linux", windows))] // where a process's start time can be read
 fn liveness_checks_the_start_time() {
     let start = registry::own_start_time().unwrap();
     let pid = json!(std::process::id());
